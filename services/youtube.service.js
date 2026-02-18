@@ -28,7 +28,7 @@ export const searchVideos = async (query, options = {}) => {
         console.log(`${'='.repeat(60)}\n`);
 
         // Call Python ML service for advanced semantic search
-        const response = await axios.post('http://localhost:8000/search-videos', {
+        const response = await axios.post('https://ml-service-etaott.onrender.com/search-videos', {
             query: query.substring(0, 200),
             selected_text: selectedText.substring(0, 500),
             transcript_segment: transcriptSegment.substring(0, 500),

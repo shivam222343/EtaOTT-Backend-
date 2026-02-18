@@ -2,7 +2,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://ml-service-etaott.onrender.com';
 
 // Track active requests for cancellation
 const activeControllers = new Map();
@@ -44,8 +44,8 @@ export const extractWithML = async (fileUrl, contentId, contentType) => {
         }
 
         console.error(`❌ ML service call failed:`, error.message);
-        if (error.code === 'ECONNREFUSED') {
-            throw new Error('ML service is not running. Please start the Python service on port 8000.');
+        if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+            throw new Error(`ML service is unreachable at ${ML_SERVICE_URL}. Please ensure the service is deployed and active.`);
         }
         throw error;
     } finally {
