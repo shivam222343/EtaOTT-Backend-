@@ -57,7 +57,7 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(helmet({
-    crossOriginOpenerPolicy: { policy: "unsafe-none" },
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: false
