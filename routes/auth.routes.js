@@ -131,7 +131,18 @@ router.post('/verify-token', async (req, res) => {
 
         res.json({
             success: true,
-            data: { user }
+            data: {
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    role: user.role,
+                    profile: user.profile,
+                    institutionIds: user.institutionIds,
+                    branchIds: user.branchIds,
+                    groqApiKey: user.groqApiKey,
+                    aiOnboarding: user.aiOnboarding
+                }
+            }
         });
     } catch (error) {
         res.status(401).json({
@@ -159,7 +170,19 @@ router.get('/profile', async (req, res) => {
 
         res.json({
             success: true,
-            data: { user }
+            data: {
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    role: user.role,
+                    profile: user.profile,
+                    institutionIds: user.institutionIds,
+                    branchIds: user.branchIds,
+                    groqApiKey: user.groqApiKey,
+                    aiOnboarding: user.aiOnboarding,
+                    progressStats: user.progressStats
+                }
+            }
         });
     } catch (error) {
         res.status(401).json({
