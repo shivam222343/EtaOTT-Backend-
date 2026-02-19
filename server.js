@@ -34,7 +34,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
+        origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : ['http://localhost:5173'],
         credentials: true
     }
 });
@@ -48,8 +48,23 @@ app.use(helmet({
 }));
 app.use(morgan('dev'));
 app.use(cors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
-    credentials: true
+    origin: (origin, callback) => {
+        const allowedOrigins = process.env.ALLOWED_ORIGINS
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+            : ['http://localhost:5173'];
+
+        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            console.warn(`CORS blocked for origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
