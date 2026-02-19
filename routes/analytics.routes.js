@@ -81,9 +81,28 @@ router.get('/faculty/:id', authenticate, attachUser, async (req, res) => {
         const user = await User.findById(facultyId);
         const branchIds = user.branchIds || [];
 
-        // 1. Engagement (Monthly Active Users in their branches) - Simplified
+        // Pre-fetch course IDs to make aggregation simpler and more reliable
+        const relevantCourseIds = await Course.find({
+            $or: [
+                { branchIds: { $in: branchIds } },
+                { facultyIds: facultyId }
+            ]
+        }).distinct('_id');
+
+        if (!relevantCourseIds || relevantCourseIds.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    engagementTrend: [],
+                    coursePerformance: [],
+                    avgResolutionTime: 0
+                }
+            });
+        }
+
+        // 1. Engagement (Monthly Active Users in their courses)
         const engagementTrend = await Doubt.aggregate([
-            { $match: { courseId: { $in: await Course.find({ branchIds: { $in: branchIds } }).distinct('_id') } } },
+            { $match: { courseId: { $in: relevantCourseIds } } },
             {
                 $group: {
                     _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
@@ -97,16 +116,29 @@ router.get('/faculty/:id', authenticate, attachUser, async (req, res) => {
 
         // 2. Course Performance
         const coursePerformance = await Doubt.aggregate([
-            { $match: { courseId: { $in: await Course.find({ branchIds: { $in: branchIds } }).distinct('_id') } } },
-            { $group: { _id: "$courseId", avgConfidence: { $avg: "$confidence" }, totalDoubts: { $sum: 1 }, resolved: { $sum: { $cond: [{ $eq: ["$status", "resolved"] }, 1, 0] } } } },
+            { $match: { courseId: { $in: relevantCourseIds } } },
+            {
+                $group: {
+                    _id: "$courseId",
+                    avgConfidence: { $avg: "$confidence" },
+                    totalDoubts: { $sum: 1 },
+                    resolved: { $sum: { $cond: [{ $eq: ["$status", "resolved"] }, 1, 0] } }
+                }
+            },
             { $lookup: { from: 'courses', localField: '_id', foreignField: '_id', as: 'course' } },
             { $unwind: "$course" },
-            { $project: { name: "$course.name", load: "$totalDoubts", health: { $multiply: [{ $divide: ["$resolved", "$totalDoubts"] }, 100] } } }
+            { $project: { name: "$course.name", load: "$totalDoubts", health: { $multiply: [{ $divide: ["$resolved", { $max: ["$totalDoubts", 1] }] }, 100] } } }
         ]);
 
-        // 3. Resolution Speed
+        // 3. Resolution Speed (Filtered for faculty courses)
         const resolutionData = await Doubt.aggregate([
-            { $match: { status: 'resolved', resolvedAt: { $ne: null } } },
+            {
+                $match: {
+                    courseId: { $in: relevantCourseIds },
+                    status: 'resolved',
+                    resolvedAt: { $ne: null }
+                }
+            },
             { $project: { timeToResolve: { $subtract: ["$resolvedAt", "$createdAt"] } } },
             { $group: { _id: null, avgTime: { $avg: "$timeToResolve" } } }
         ]);
