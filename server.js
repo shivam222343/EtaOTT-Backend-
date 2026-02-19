@@ -89,6 +89,13 @@ app.use(cors({
         const isAllowed = allowedOrigins.some(allowed => {
             if (allowed === '*') return true;
             if (allowed === origin) return true;
+
+            // Allow local network IP addresses (e.g. 192.168.x.x) in development
+            if (process.env.NODE_ENV === 'development') {
+                const isPrivateIP = origin.match(/^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)\d+\.\d+(:\d+)?$/);
+                if (isPrivateIP) return true;
+            }
+
             // Support netlify subdomains (e.g. preview deploys)
             if (origin.endsWith('.netlify.app') && (allowed.includes('.netlify.app') || allowed === 'https://*.netlify.app')) {
                 return true;
