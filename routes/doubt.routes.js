@@ -118,133 +118,21 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
         const language = req.body.language || 'english';
         const userName = req.dbUser.profile?.name || 'Student';
 
-        // 2. Dynamic Context-Aware Video Discovery with Semantic Search
-        let suggestedVideo = null;
-        try {
-            // A. Clean up UI placeholders
-            const uiPlaceholders = [
-                /\(Visual Scan - AI Analysis\)/g,
-                /\(Video Focus - Analyzing Frame.*?\)/g,
-                /\(Image Focus - AI Vision\)/g,
-                /\(Visual Scan.*?\)/g
-            ];
-            let cleanSelectedText = (selectedText || '').trim();
-            uiPlaceholders.forEach(regex => {
-                cleanSelectedText = cleanSelectedText.replace(regex, '');
-            });
-            cleanSelectedText = cleanSelectedText.trim();
-
-            // B. Determine Primary Topic
-            let searchTopic = query;
-            const isVague = query.split(' ').length < 4 || /this|it|that|yeh|isspar|kya/i.test(query);
-
-            if (isVague) {
-                if (cleanSelectedText && cleanSelectedText.length > 5) {
-                    searchTopic = `${query} ${cleanSelectedText.substring(0, 80)}`;
-                } else if (groundingContext.transcriptSegment) {
-                    searchTopic = `${query} ${groundingContext.transcriptSegment.substring(0, 100)}`;
-                } else {
-                    searchTopic = `${query} ${contentDoc?.title || ''}`;
-                }
-            } else if (cleanSelectedText) {
-                searchTopic = `${query} ${cleanSelectedText.substring(0, 50)}`;
-            }
-
-            const courseContext = contentDoc?.courseId?.name || '';
-            const langSuffix = language.toLowerCase() === 'hindi' ? 'hindi explanation' : 'english tutorial';
-
-            // C. Detect content type preferences for intelligent ranking
-            const conceptualKeywords = ['how', 'why', 'what is', 'explain', 'concept', 'theory', 'architecture', 'protocol', 'security', 'network', 'system'];
-            const codingKeywords = ['code', 'coding', 'implement', 'build', 'create', 'program', 'function', 'class', 'algorithm'];
-
-            const isConceptual = conceptualKeywords.some(k => searchTopic.toLowerCase().includes(k)) || isVague;
-            const isCoding = codingKeywords.some(k => searchTopic.toLowerCase().includes(k));
-
-            const qualitySuffix = isConceptual ? 'animated simplified explanation concept' :
-                isCoding ? 'coding tutorial implementation' :
-                    'tutorial detailed';
-
-            // D. Build optimized search query
-            const videoSearchQuery = `${searchTopic} ${courseContext} ${qualitySuffix} ${langSuffix}`.substring(0, 150);
-
-            console.log(`🔍 Semantic Video Search: "${videoSearchQuery}"`);
-            console.log(`   Context: Selected="${cleanSelectedText.substring(0, 30)}..." Transcript="${groundingContext.transcriptSegment?.substring(0, 30) || 'N/A'}..."`);
-            console.log(`   Preferences: Animated=${isConceptual}, Coding=${isCoding}`);
-
-            // E. Perform semantic search with rich context
-            const searchResults = await youtubeService.searchVideos(videoSearchQuery, {
-                userId: studentId,
-                selectedText: cleanSelectedText,
-                transcriptSegment: groundingContext.transcriptSegment || '',
-                preferAnimated: isConceptual,
-                preferCoding: isCoding,
-                language: language
-            });
-
-            if (!searchResults || searchResults.length === 0) {
-                // Fallback with simpler query
-                const fallbackQuery = `${searchTopic || contentDoc?.title} educational ${langSuffix}`;
-                console.log(`⚠️ No results, trying fallback: "${fallbackQuery}"`);
-
-                const fallbackResults = await youtubeService.searchVideos(fallbackQuery, {
-                    userId: studentId,
-                    language: language
-                });
-
-                if (fallbackResults && fallbackResults.length > 0) {
-                    const freshVideo = fallbackResults[0];
-                    suggestedVideo = {
-                        id: freshVideo.id,
-                        url: freshVideo.url,
-                        title: freshVideo.title,
-                        thumbnail: freshVideo.thumbnail,
-                        views: freshVideo.views,
-                        searchQuery: fallbackQuery
-                    };
-                }
-            } else {
-                // F. Select unique video (avoid recently shown videos)
-                const lastDoubts = await Doubt.find({ studentId })
-                    .sort({ createdAt: -1 })
-                    .limit(5)
-                    .select('suggestedVideo.id');
-                const usedVideoIds = lastDoubts.map(d => d.suggestedVideo?.id).filter(id => id);
-                const freshVideo = searchResults.find(v => !usedVideoIds.includes(v.id)) || searchResults[0];
-
-                if (freshVideo) {
-                    suggestedVideo = {
-                        id: freshVideo.id,
-                        url: freshVideo.url,
-                        title: freshVideo.title,
-                        thumbnail: freshVideo.thumbnail,
-                        views: freshVideo.views,
-                        searchQuery: videoSearchQuery,
-                        semanticScore: freshVideo.semanticScore,
-                        finalScore: freshVideo.finalScore
-                    };
-
-                    console.log(`✅ Selected: "${freshVideo.title}" (Views: ${freshVideo.views.toLocaleString()}, Semantic: ${(freshVideo.semanticScore * 100).toFixed(1)}%)`);
-                }
-            }
-        } catch (err) {
-            console.warn('Video discovery failed:', err.message);
-            suggestedVideo = null; // No fallback video
-        }
-
         if (kgResult && kgResult.confidence >= 70) {
             console.log(`🎯 CACHE HIT (Neo4j): Confidence ${kgResult.confidence}%`);
 
+            // Still try to get a video in parallel for cache hits but don't block too long or just use saved one if exists
+            // For now, prioritize speed for KG hits by returning immediately
             const doubt = await Doubt.create({
                 studentId,
                 courseId,
                 contentId,
                 query,
-                selectedText, // Added for consistency
+                selectedText,
                 context: enhancedContext,
                 visualContext,
                 aiResponse: kgResult.answer,
                 confidence: kgResult.confidence,
-                suggestedVideo, // Include video in cache hits too
                 status: 'resolved',
                 isFromCache: true,
                 source: 'KNOWLEDGE_GRAPH'
@@ -256,32 +144,70 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                 data: {
                     doubt,
                     isFromCache: true,
-                    isSaved: true, // Knowledge graph is already saved
+                    isSaved: true,
                     source: 'KNOWLEDGE_GRAPH',
                     confidence: kgResult.confidence
                 }
             });
         }
 
-        // 3. CACHE MISS: Ask AI Mentor
-        const aiResult = await aiService.askGroq(
-            query,
-            enhancedContext,
-            visualContext,
-            contentUrl,
-            contentType,
-            language,
-            userName,
-            selectedText,
-            user?.groqApiKey
-        );
+        // 2. CACHE MISS: Run AI and YouTube Search in PARALLEL for speed
+        console.log('⚡ Cache miss: Escalating to AI + YouTube Parallel Search');
+
+        const [aiResult, suggestedVideo] = await Promise.all([
+            // AI Task
+            aiService.askGroq(
+                query,
+                enhancedContext,
+                visualContext,
+                contentUrl,
+                contentType,
+                language,
+                userName,
+                selectedText,
+                user?.groqApiKey
+            ),
+            // YouTube Task (Wrapped in a try-catch to not let search failure break the response)
+            (async () => {
+                try {
+                    // Optimized search query construction
+                    const uiPlaceholders = [/\(Visual Scan - AI Analysis\)/g, /\(Video Focus - Analyzing Frame.*?\)/g, /\(Image Focus - AI Vision\)/g];
+                    let cleanSelectedText = (selectedText || '').trim();
+                    uiPlaceholders.forEach(regex => { cleanSelectedText = cleanSelectedText.replace(regex, ''); });
+
+                    let searchTopic = query;
+                    const isVague = query.split(' ').length < 4 || /this|it|that|yeh|isspar|kya/i.test(query);
+                    if (isVague) {
+                        searchTopic = cleanSelectedText && cleanSelectedText.length > 5 ? `${query} ${cleanSelectedText.substring(0, 80)}` : `${query} ${contentDoc?.title || ''}`;
+                    }
+
+                    const videoSearchQuery = `${searchTopic} ${language === 'hindi' ? 'hindi' : 'english'} explained`.substring(0, 100);
+                    const searchResults = await youtubeService.searchVideos(videoSearchQuery, { userId: studentId, language });
+
+                    if (searchResults && searchResults.length > 0) {
+                        const freshVideo = searchResults[0];
+                        return {
+                            id: freshVideo.id,
+                            url: freshVideo.url,
+                            title: freshVideo.title,
+                            thumbnail: freshVideo.thumbnail,
+                            views: freshVideo.views,
+                            searchQuery: videoSearchQuery
+                        };
+                    }
+                } catch (err) {
+                    console.warn('Inline video discovery failed:', err.message);
+                }
+                return null;
+            })()
+        ]);
 
         // Clean up video placeholders if no video found
         if (!suggestedVideo && aiResult.explanation.includes('[[VIDEO:')) {
             aiResult.explanation = aiResult.explanation.replace(/\[\[VIDEO:?\s*[^\]]*\]\]/g, '\n\n*No high-quality video found specifically for this subtopic.*');
         }
 
-        // 3. Rule 3: Save high-confidence AI responses to Neo4j Graph (Auto-Learning)
+        // Save high-confidence AI responses to Neo4j Graph (Auto-Learning)
         let isSaved = false;
         if (aiResult.confidence >= 70) {
             try {
@@ -300,7 +226,6 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
             }
         }
 
-        // 4. Create local doubt record for tracking
         const doubt = await Doubt.create({
             studentId,
             courseId,

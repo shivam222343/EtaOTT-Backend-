@@ -34,7 +34,23 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : ['http://localhost:5173'],
+        origin: (origin, callback) => {
+            const defaultOrigins = [
+                'http://localhost:5173',
+                'http://localhost:5174',
+                'http://localhost:3000',
+                'http://127.0.0.1:5173',
+                'https://eta-ott.netlify.app'
+            ];
+            const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [];
+            const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+            if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(a => a === '*' || (origin.endsWith('.netlify.app') && a.includes('.netlify.app')))) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         credentials: true
     }
 });
@@ -49,14 +65,41 @@ app.use(helmet({
 app.use(morgan('dev'));
 app.use(cors({
     origin: (origin, callback) => {
-        const allowedOrigins = process.env.ALLOWED_ORIGINS
-            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-            : ['http://localhost:5173'];
+        // Define default allowed origins
+        const defaultOrigins = [
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:3000',
+            'http://127.0.0.1:5173',
+            'https://eta-ott.netlify.app'
+        ];
 
-        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        const envOrigins = process.env.ALLOWED_ORIGINS
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+            : [];
+
+        const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+        // Allow if no origin (like mobile apps or curl)
+        if (!origin) {
+            return callback(null, true);
+        }
+
+        // Check if origin is allowed
+        const isAllowed = allowedOrigins.some(allowed => {
+            if (allowed === '*') return true;
+            if (allowed === origin) return true;
+            // Support netlify subdomains (e.g. preview deploys)
+            if (origin.endsWith('.netlify.app') && (allowed.includes('.netlify.app') || allowed === 'https://*.netlify.app')) {
+                return true;
+            }
+            return false;
+        });
+
+        if (isAllowed) {
             callback(null, true);
         } else {
-            console.warn(`CORS blocked for origin: ${origin}`);
+            console.warn(`🛑 CORS blocked for origin: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
