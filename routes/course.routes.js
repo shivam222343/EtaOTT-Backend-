@@ -121,10 +121,13 @@ router.post('/', authenticate, attachUser, requireFaculty, async (req, res) => {
         // Create course node in Neo4j and link to all branches
         for (const branchId of branchIds) {
             await runNeo4jQuery(
-                `MATCH (b:Branch {id: $branchId})
-           MERGE (c:Course {id: $courseId})
-           ON CREATE SET c.name = $name, c.code = $code, c.createdAt = datetime()
-           MERGE (b)-[:HAS]->(c)`,
+                `MERGE (c:Course {id: $courseId})
+                 ON CREATE SET c.name = $name, c.code = $code, c.createdAt = datetime()
+                 WITH c
+                 OPTIONAL MATCH (b:Branch {id: $branchId})
+                 FOREACH (x IN CASE WHEN b IS NOT NULL THEN [1] ELSE [] END |
+                   MERGE (b)-[:HAS]->(c)
+                 )`,
                 {
                     branchId: branchId.toString(),
                     courseId: course._id.toString(),
@@ -228,10 +231,13 @@ router.put('/:id', authenticate, attachUser, requireFaculty, async (req, res) =>
             // Update Neo4j relationships
             for (const branchId of addedBranches) {
                 await runNeo4jQuery(
-                    `MATCH (b:Branch {id: $branchId})
-                     MERGE (c:Course {id: $courseId})
+                    `MERGE (c:Course {id: $courseId})
                      ON CREATE SET c.name = $name, c.code = $code
-                     MERGE (b)-[:HAS]->(c)`,
+                     WITH c
+                     OPTIONAL MATCH (b:Branch {id: $branchId})
+                     FOREACH (x IN CASE WHEN b IS NOT NULL THEN [1] ELSE [] END |
+                       MERGE (b)-[:HAS]->(c)
+                     )`,
                     {
                         branchId: branchId,
                         courseId: course._id.toString(),

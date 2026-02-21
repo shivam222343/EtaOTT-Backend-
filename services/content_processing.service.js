@@ -176,16 +176,11 @@ export async function processContent(contentId, contentType, fileUrl) {
 
             await linkContentToCourse(content._id, content.courseId);
 
-            // SPECIAL RULE: For YouTube videos, don't automatically add to graph topics/sections 
-            // This prevents them from being scattered into the automated knowledge graph structure
-            if (contentType !== 'youtube' && !content.file?.url?.includes('youtube.com') && !content.file?.url?.includes('youtu.be')) {
-                if (extractedData.topics && extractedData.topics.length > 0) {
-                    await createTopicNodes(content._id, extractedData.topics);
-                }
-                await linkRelatedContent(content._id);
-            } else {
-                console.log(`ℹ️ [${contentId}] YouTube content: Skipping automated topic/related linking as requested.`);
+            // Integrate content topics and related links into the knowledge graph
+            if (extractedData.topics && extractedData.topics.length > 0) {
+                await createTopicNodes(content._id, extractedData.topics);
             }
+            await linkRelatedContent(content._id);
         } catch (graphError) {
             console.error(`❌ [${contentId}] Graph processing failed:`, graphError);
         }

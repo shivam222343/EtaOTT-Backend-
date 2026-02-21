@@ -27,6 +27,7 @@ import {
 } from '../services/graph/content.graph.js';
 import { processContent } from '../services/content_processing.service.js';
 import { emitToCourse } from '../services/websocket.service.js';
+import { runNeo4jQuery } from '../config/neo4j.config.js';
 import GeneratedPDF from '../models/GeneratedPDF.model.js';
 import { cleanScrapedContent } from '../services/contentCleaner.service.js';
 import { formatContentWithAI } from '../services/aiFormatter.service.js';
@@ -717,7 +718,25 @@ router.get('/recommendations/me', authenticate, attachUser, async (req, res) => 
 // Get content graph visualization
 router.get('/course/:courseId/graph', authenticate, attachUser, async (req, res) => {
     try {
-        const graph = await getContentGraph(req.params.courseId);
+        const { courseId } = req.params;
+
+        // Self-Healing: Ensure the Course node exists in Neo4j before fetching
+        // This handles cases where courses were created before Neo4j integration
+        const course = await Course.findById(courseId);
+        if (course) {
+            await runNeo4jQuery(
+                `MERGE (c:Course {id: $id})
+                 ON CREATE SET c.name = $name, c.code = $code, c.createdAt = datetime()
+                 ON MATCH SET c.name = $name, c.code = $code`,
+                {
+                    id: courseId,
+                    name: course.name,
+                    code: course.code || ''
+                }
+            );
+        }
+
+        const graph = await getContentGraph(courseId);
 
         res.json({
             success: true,

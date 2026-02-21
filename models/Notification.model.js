@@ -15,7 +15,10 @@ const notificationSchema = new mongoose.Schema({
             'course_created',
             'branch_joined',
             'institution_joined',
-            'system_announcement'
+            'system_announcement',
+            'institution_created',
+            'institution_approved',
+            'institution_rejected'
         ],
         required: true
     },

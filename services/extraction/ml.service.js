@@ -2,7 +2,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://ml-service-etaott.onrender.com';
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://44.203.193.113:8000';
 
 // Track active requests for cancellation
 const activeControllers = new Map();
@@ -26,7 +26,7 @@ export const extractWithML = async (fileUrl, contentId, contentType) => {
             content_id: contentId,
             content_type: contentType
         }, {
-            timeout: 600000, // 10 minutes
+            timeout: 1200000, // 20 minutes
             signal: controller.signal
         });
 

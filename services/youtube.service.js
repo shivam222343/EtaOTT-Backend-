@@ -2,6 +2,13 @@ import axios from 'axios';
 import User from '../models/User.model.js';
 import Course from '../models/Course.model.js';
 import Content from '../models/Content.model.js';
+import { getCache, setCache } from '../config/redis.config.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://44.203.193.113:8000';
+
 
 /**
  * Advanced YouTube search using Python ML service with semantic embeddings
@@ -12,6 +19,7 @@ import Content from '../models/Content.model.js';
 export const searchVideos = async (query, options = {}) => {
     const {
         userId = null,
+        page = 1,
         selectedText = '',
         transcriptSegment = '',
         preferAnimated = false,
@@ -27,8 +35,16 @@ export const searchVideos = async (query, options = {}) => {
         console.log(`   Preferences: Animated=${preferAnimated}, Coding=${preferCoding}`);
         console.log(`${'='.repeat(60)}\n`);
 
+        // Check cache for this specific search including page
+        const cacheKey = `yt_search:${Buffer.from(query + selectedText + transcriptSegment + page).toString('base64').substring(0, 32)}`;
+        const cachedResults = await getCache(cacheKey);
+        if (cachedResults) {
+            console.log('⚡ Returning cached search results');
+            return cachedResults;
+        }
+
         // Call Python ML service for advanced semantic search
-        const response = await axios.post('https://ml-service-etaott.onrender.com/search-videos', {
+        const response = await axios.post(`${ML_SERVICE_URL}/search-videos`, {
             query: query.substring(0, 200),
             selected_text: selectedText.substring(0, 500),
             transcript_segment: transcriptSegment.substring(0, 500),
@@ -65,6 +81,10 @@ export const searchVideos = async (query, options = {}) => {
         }));
 
         console.log(`✅ ML Service returned ${videos.length} videos`);
+
+        // Cache search results for 1 hour
+        await setCache(cacheKey, videos, 3600);
+
         if (videos.length > 0) {
             const best = videos[0];
             console.log(`   Top: "${best.title.substring(0, 60)}..."`);
@@ -196,10 +216,28 @@ const calculateAgo = (publishedAt) => {
 /**
  * Get recommended YouTube videos based on user context
  * @param {string} userId - User ID
+ * @param {number} page - Page number
+ * @param {boolean} refresh - Whether to bypass cache and fetch fresh
  * @returns {Promise<Array>} List of recommended videos
  */
-export const getRecommendedVideos = async (userId) => {
+export const getRecommendedVideos = async (userId, page = 1, refresh = false) => {
     try {
+        // 0. Cache strategy: Store a larger pool, but return a shuffled subset for Page 1
+        const poolCacheKey = `yt_pool:${userId}`;
+        const pageCacheKey = `yt_recs:${userId}:${page}`;
+
+        // If refreshing, clear pool
+        if (refresh) await deleteCache(poolCacheKey);
+
+        // For Page 1, we want it to feel "flipped" every single time
+        if (page === 1 && !refresh) {
+            const cachedPool = await getCache(poolCacheKey);
+            if (cachedPool && cachedPool.length > 0) {
+                console.log(`⚡ Returning fresh shuffle from pool for user ${userId}`);
+                return cachedPool.sort(() => 0.5 - Math.random()).slice(0, 30);
+            }
+        }
+
         const user = await User.findById(userId);
         if (!user) throw new Error('User not found');
 
@@ -226,20 +264,46 @@ export const getRecommendedVideos = async (userId) => {
         const allThemes = [...new Set([...courseThemes, ...contentThemes, ...searchHistory])];
 
         // Pick random themes to keep it dynamic
-        const selectedThemes = allThemes.sort(() => 0.5 - Math.random()).slice(0, 4);
+        const selectedThemes = allThemes
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 5);
+
+        // Add a "learning spice" to get different types of videos each time
+        const learningSpices = [
+            'visual explanation',
+            'interactive tutorial',
+            'deep dive',
+            'quick summary',
+            'crash course',
+            'hands on',
+            'conceptual animation',
+            'advanced lecture'
+        ];
+        const spice = learningSpices[Math.floor(Math.random() * learningSpices.length)];
 
         let recommendationQuery;
         if (selectedThemes.length > 0) {
-            recommendationQuery = `${selectedThemes.join(' ')} educational academic lecture`;
+            recommendationQuery = `${selectedThemes.join(' ')} ${spice} educational academic`;
         } else {
             // Default educational query if no history/courses
-            recommendationQuery = "trending educational technology science lectures academic";
+            recommendationQuery = `trending ${spice} science technology lectures academic`;
         }
 
-        console.log(`🔍 Generating recommendations with query: ${recommendationQuery}`);
+        console.log(`🔍 Generating fresh recommendations: "${recommendationQuery}" (Page: ${page})`);
 
-        const videos = await searchVideos(recommendationQuery, { userId });
-        return videos.slice(0, 18);
+        const videos = await searchVideos(recommendationQuery, { userId, page });
+        const finalVideos = videos.sort(() => 0.5 - Math.random());
+
+        // Cache the result
+        if (finalVideos.length > 0) {
+            // Store in pool for the "flipped" experience on return
+            if (page === 1) {
+                await setCache(poolCacheKey, finalVideos, 7200);
+            }
+            await setCache(pageCacheKey, finalVideos.slice(0, 30), 7200);
+        }
+
+        return finalVideos.slice(0, 30);
     } catch (error) {
         console.error('YouTube recommendation error:', error);
         throw error;

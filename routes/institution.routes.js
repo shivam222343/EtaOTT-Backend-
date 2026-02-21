@@ -1,6 +1,8 @@
 import express from 'express';
 import { authenticate, attachUser } from '../middleware/auth.middleware.js';
-import { requireFaculty, requireFacultyOrAdmin } from '../middleware/role.middleware.js';
+import { requireFaculty, requireFacultyOrAdmin, requireAdmin } from '../middleware/role.middleware.js';
+import Notification from '../models/Notification.model.js';
+import { sendNotification } from '../services/websocket.service.js';
 import Institution from '../models/Institution.model.js';
 import User from '../models/User.model.js';
 import { runNeo4jQuery } from '../config/neo4j.config.js';
@@ -12,7 +14,7 @@ router.post('/', authenticate, attachUser, requireFaculty, async (req, res) => {
     try {
         const { name, description, logo, website, address } = req.body;
 
-        // Create institution
+        // Create institution (approved by default - Temporarily removed admin verification)
         const institution = await Institution.create({
             name,
             createdBy: req.dbUser._id,
@@ -22,23 +24,26 @@ router.post('/', authenticate, attachUser, requireFaculty, async (req, res) => {
                 logo,
                 website,
                 address
-            }
+            },
+            isActive: true,
+            status: 'approved'
         });
 
-        // Add institution to user's institutionIds
-        await User.findByIdAndUpdate(req.dbUser._id, {
-            $addToSet: { institutionIds: institution._id }
-        });
-
-        // Create institution node in Neo4j
-        await runNeo4jQuery(
-            `CREATE (i:Institution {
-        id: $id,
-        name: $name,
-        createdAt: datetime()
-      })`,
-            { id: institution._id.toString(), name: institution.name }
-        );
+        // Notify all admins
+        const admins = await User.find({ role: 'admin' });
+        for (const admin of admins) {
+            const notification = await Notification.create({
+                recipientId: admin._id,
+                type: 'institution_created',
+                title: 'New Institution Approval Required',
+                message: `A new institution "${name}" has been created by ${req.dbUser.profile.name} and requires your approval.`,
+                metadata: {
+                    institutionId: institution._id,
+                    facultyId: req.dbUser._id
+                }
+            });
+            sendNotification(admin._id, notification);
+        }
 
         res.status(201).json({
             success: true,
@@ -68,6 +73,16 @@ router.post('/join', authenticate, attachUser, requireFaculty, async (req, res) 
                 message: 'Invalid access key'
             });
         }
+
+        // Removed temporarily
+        /*
+        if (institution.status !== 'approved') {
+            return res.status(400).json({
+                success: false,
+                message: 'This institution is still pending admin approval'
+            });
+        }
+        */
 
         // Check if already a member
         if (institution.facultyIds.includes(req.dbUser._id)) {
@@ -144,6 +159,26 @@ router.post('/:id/leave', authenticate, attachUser, requireFaculty, async (req, 
     }
 });
 
+// Get pending institutions (Admin only)
+router.get('/admin/pending', authenticate, attachUser, requireAdmin, async (req, res) => {
+    try {
+        const institutions = await Institution.find({ status: 'pending' })
+            .populate('createdBy', 'profile.name email');
+
+        res.json({
+            success: true,
+            data: { institutions }
+        });
+    } catch (error) {
+        console.error('Get pending institutions error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get pending institutions',
+            error: error.message
+        });
+    }
+});
+
 // Get institution by ID
 router.get('/:id', authenticate, attachUser, async (req, res) => {
     try {
@@ -171,6 +206,7 @@ router.get('/:id', authenticate, attachUser, async (req, res) => {
         });
     }
 });
+
 
 // Update institution
 router.put('/:id', authenticate, attachUser, requireFacultyOrAdmin, async (req, res) => {
@@ -290,6 +326,69 @@ router.delete('/:id', authenticate, attachUser, requireFacultyOrAdmin, async (re
         res.status(500).json({
             success: false,
             message: 'Failed to delete institution',
+            error: error.message
+        });
+    }
+});
+
+
+// Approve/Reject institution (Admin only)
+router.patch('/:id/moderate', authenticate, attachUser, requireAdmin, async (req, res) => {
+    try {
+        const { status } = req.body; // 'approved' or 'rejected'
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status' });
+        }
+
+        const institution = await Institution.findById(req.params.id);
+        if (!institution) {
+            return res.status(404).json({ success: false, message: 'Institution not found' });
+        }
+
+        institution.status = status;
+        institution.isActive = status === 'approved';
+        await institution.save();
+
+        if (status === 'approved') {
+            // Add institution to creator's institutionIds and create Neo4j node
+            await User.findByIdAndUpdate(institution.createdBy, {
+                $addToSet: { institutionIds: institution._id }
+            });
+
+            await runNeo4jQuery(
+                `CREATE (i:Institution {
+                    id: $id,
+                    name: $name,
+                    createdAt: datetime()
+                })`,
+                { id: institution._id.toString(), name: institution.name }
+            );
+        }
+
+        // Notify faculty
+        const notification = await Notification.create({
+            recipientId: institution.createdBy,
+            type: status === 'approved' ? 'institution_approved' : 'institution_rejected',
+            title: status === 'approved' ? 'Institution Approved' : 'Institution Rejected',
+            message: status === 'approved'
+                ? `Your institution "${institution.name}" has been approved!`
+                : `Your institution "${institution.name}" was rejected.`,
+            metadata: {
+                institutionId: institution._id
+            }
+        });
+        sendNotification(institution.createdBy, notification);
+
+        res.json({
+            success: true,
+            message: `Institution ${status} successfully`,
+            data: { institution }
+        });
+    } catch (error) {
+        console.error('Moderate institution error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to moderate institution',
             error: error.message
         });
     }

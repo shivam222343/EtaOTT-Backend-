@@ -128,7 +128,7 @@ router.post('/prepare', authenticate, attachUser, async (req, res) => {
  */
 router.get('/search', authenticate, attachUser, async (req, res) => {
     try {
-        const { q } = req.query;
+        const { q, page = 1 } = req.query;
         if (!q) {
             return res.status(400).json({
                 success: false,
@@ -136,7 +136,7 @@ router.get('/search', authenticate, attachUser, async (req, res) => {
             });
         }
 
-        const videos = await searchVideos(q, req.dbUser._id);
+        const videos = await searchVideos(q, { userId: req.dbUser._id, page: parseInt(page) });
 
         res.json({
             success: true,
@@ -159,7 +159,8 @@ router.get('/search', authenticate, attachUser, async (req, res) => {
  */
 router.get('/recommendations', authenticate, attachUser, async (req, res) => {
     try {
-        const videos = await getRecommendedVideos(req.dbUser._id);
+        const { page = 1, refresh = false } = req.query;
+        const videos = await getRecommendedVideos(req.dbUser._id, parseInt(page), refresh === 'true');
 
         res.json({
             success: true,

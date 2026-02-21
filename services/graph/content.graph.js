@@ -39,8 +39,8 @@ export const createContentNode = async (content) => {
 export const linkContentToCourse = async (contentId, courseId) => {
     try {
         await runNeo4jQuery(
-            `MATCH (content:Content {id: $contentId})
-             MATCH (course:Course {id: $courseId})
+            `MERGE (content:Content {id: $contentId})
+             MERGE (course:Course {id: $courseId})
              MERGE (course)-[:HAS_CONTENT]->(content)`,
             {
                 contentId: contentId.toString(),
@@ -251,10 +251,14 @@ export const recordView = async (studentId, contentId) => {
 export const getContentGraph = async (courseId) => {
     try {
         const result = await runNeo4jQuery(
-            `MATCH (course:Course {id: $courseId})-[:HAS_CONTENT]->(c:Content)
+            `MATCH (course:Course {id: $courseId})
              OPTIONAL MATCH (c)-[r:COVERS|TEACHES|PREREQUISITE_FOR|RELATED_TO]-(related)
              OPTIONAL MATCH (c)<-[drel:RELATES_TO]-(d:Doubt)
-             RETURN c, collect(DISTINCT {rel: r, node: related}) as relationships, collect(DISTINCT {rel: drel, node: d}) as doubts`,
+             OPTIONAL MATCH (c)<-[qrel:GENERATED_FROM_RESOURCE|RELATES_TO]-(q:Question)
+             OPTIONAL MATCH (q)-[:ANSWERS]->(qa:Answer)
+             RETURN course, c, collect(DISTINCT {rel: r, node: related}) as relationships, 
+                    collect(DISTINCT {rel: drel, node: d}) as doubts,
+                    collect(DISTINCT {rel: qrel, node: q, answer: qa}) as questions`,
             {
                 courseId: courseId.toString()
             }
@@ -264,8 +268,28 @@ export const getContentGraph = async (courseId) => {
         const edges = [];
         const nodeIds = new Set();
 
+        // Check if we have any results at all (Course must exist)
+        if (result.records.length === 0) {
+            // If course doesn't exist in Neo4j, try to create it or return empty
+            return { nodes, edges };
+        }
+
+        // Add the Course node itself
+        const courseNode = result.records[0].get('course').properties;
+        nodes.push({
+            id: courseNode.id,
+            label: courseNode.name || 'Course',
+            type: 'Course'
+        });
+        nodeIds.add(courseNode.id);
+
         result.records.forEach(record => {
-            const content = record.get('c').properties;
+            const courseProp = record.get('course').properties;
+            const cNode = record.get('c');
+
+            if (!cNode) return; // Only course exists, no content linked yet
+
+            const content = cNode.properties;
             const contentId = content.id;
 
             if (!nodeIds.has(contentId)) {
@@ -277,6 +301,13 @@ export const getContentGraph = async (courseId) => {
                 });
                 nodeIds.add(contentId);
             }
+
+            // Link content to its course
+            edges.push({
+                source: courseProp.id,
+                target: contentId,
+                type: 'HAS_CONTENT'
+            });
 
             const relationships = record.get('relationships');
             relationships.forEach(rel => {
@@ -307,7 +338,7 @@ export const getContentGraph = async (courseId) => {
                     const doubtProps = item.node.properties;
                     // Use identity if available, else fallback to hashing queryKey or similar. 
                     // Javascript neo4j driver integers: item.node.identity.toString() works.
-                    const doubtId = item.node.identity ? item.node.identity.toString() : `doubt_${doubtProps.queryKey.substring(0, 10)}`;
+                    const doubtId = item.node.identity ? item.node.identity.toString() : `doubt_${contentId}_${Math.random().toString(36).substr(2, 5)}`;
 
                     if (!nodeIds.has(doubtId)) {
                         nodes.push({
@@ -324,6 +355,32 @@ export const getContentGraph = async (courseId) => {
                         source: doubtId, // Doubt relates to Content
                         target: contentId,
                         type: 'RELATES_TO'
+                    });
+                }
+            });
+
+            const questions = record.get('questions');
+            questions.forEach(item => {
+                if (item.node && item.rel) {
+                    const qProps = item.node.properties;
+                    const qId = item.node.identity ? item.node.identity.toString() : `q_${contentId}_${Math.random().toString(36).substr(2, 5)}`;
+                    const answer = item.answer?.properties?.text || 'AI Knowledge Fragment';
+
+                    if (!nodeIds.has(qId)) {
+                        nodes.push({
+                            id: qId,
+                            label: qProps.text,
+                            type: 'Doubt', // Use 'Doubt' for consistent UI color coding
+                            answer: answer,
+                            confidence: item.answer?.properties?.confidence || 100
+                        });
+                        nodeIds.add(qId);
+                    }
+
+                    edges.push({
+                        source: qId,
+                        target: contentId,
+                        type: item.rel.type
                     });
                 }
             });
