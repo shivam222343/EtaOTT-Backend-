@@ -2,7 +2,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://44.203.193.113:8000';
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://ml-service-etaott.onrender.com';
 
 // Track active requests for cancellation
 const activeControllers = new Map();
