@@ -4,7 +4,7 @@ import { runNeo4jQuery } from '../config/neo4j.config.js';
 
 dotenv.config();
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'https://ml-service-etaott.onrender.com';
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
