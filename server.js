@@ -1,4 +1,13 @@
 import 'dotenv/config';
+import dns from 'dns';
+
+// Fix for MongoDB SRV lookup issues on Windows with Node.js 18+
+if (process.platform === 'win32') {
+    dns.setDefaultResultOrder('ipv4first');
+    // Use Google Public DNS to resolve SRV records when local resolver fails
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+}
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -64,7 +73,7 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(helmet({
-    crossOriginOpenerPolicy: false,
+    crossOriginOpenerPolicy: { policy: "unsafe-none" },
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: false
@@ -78,7 +87,8 @@ app.use(cors({
             'http://localhost:5174',
             'http://localhost:3000',
             'http://127.0.0.1:5173',
-            'https://eta-ott.netlify.app'
+            'https://eta-ott.netlify.app',
+            'http://eta.aurakitcoek.online'
         ];
 
         const envOrigins = process.env.ALLOWED_ORIGINS

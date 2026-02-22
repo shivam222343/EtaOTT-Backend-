@@ -23,13 +23,13 @@ const ALLOWED_FILE_TYPES = {
 
 // File size limits (in bytes)
 const FILE_SIZE_LIMITS = {
-    pdf: 50 * 1024 * 1024,          // 50MB
+    pdf: 100 * 1024 * 1024,          // 100MB (increased to be safe)
     video: 500 * 1024 * 1024,       // 500MB
-    presentation: 50 * 1024 * 1024,  // 50MB
-    document: 20 * 1024 * 1024,      // 20MB
-    image: 10 * 1024 * 1024,         // 10MB
-    audio: 50 * 1024 * 1024,         // 50MB
-    code: 5 * 1024 * 1024            // 5MB
+    presentation: 100 * 1024 * 1024,  // 100MB
+    document: 50 * 1024 * 1024,      // 50MB
+    image: 50 * 1024 * 1024,         // 50MB
+    audio: 100 * 1024 * 1024,        // 100MB
+    code: 50 * 1024 * 1024            // 50MB
 };
 
 // Determine content type from mimetype
@@ -53,8 +53,8 @@ const storage = new CloudinaryStorage({
         let resourceType = 'auto';
         if (contentType === 'video') resourceType = 'video';
         else if (contentType === 'image') resourceType = 'image';
-        else if (contentType === 'pdf') resourceType = 'raw';
-        else resourceType = 'raw';
+        else if (contentType === 'pdf') resourceType = 'image'; // PDFs are treated as images for better processing/size limits
+        else resourceType = 'auto';
 
         return {
             folder: `eta-content/${contentType}`,

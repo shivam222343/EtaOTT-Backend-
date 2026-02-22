@@ -48,6 +48,7 @@ router.get('/recent', authenticate, attachUser, async (req, res) => {
             query.branchIds = { $in: req.dbUser.branchIds || [] };
         }
 
+        const totalContent = await Content.countDocuments(query);
         const recentContent = await Content.find(query)
             .populate('courseId', 'name code')
             .populate('uploadedBy', 'profile.name')
@@ -56,7 +57,10 @@ router.get('/recent', authenticate, attachUser, async (req, res) => {
 
         res.json({
             success: true,
-            data: { recentContent }
+            data: {
+                recentContent,
+                totalContent
+            }
         });
     } catch (error) {
         console.error('Get recent content error:', error);

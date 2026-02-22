@@ -9,6 +9,7 @@ import Doubt from '../models/Doubt.model.js';
 import { runNeo4jQuery } from '../config/neo4j.config.js';
 import { deleteFromCloudinary } from '../config/cloudinary.config.js';
 import { deleteContentNode } from '../services/graph/content.graph.js';
+import User from '../models/User.model.js';
 
 const router = express.Router();
 
@@ -422,6 +423,41 @@ router.get('/institution/:institutionId', authenticate, attachUser, async (req, 
         res.status(500).json({
             success: false,
             message: 'Failed to get courses',
+            error: error.message
+        });
+    }
+});
+
+// Get all enrolled students for a course
+router.get('/:id/students', authenticate, attachUser, requireFaculty, async (req, res) => {
+    try {
+        const course = await Course.findById(req.params.id);
+        if (!course) {
+            return res.status(404).json({ success: false, message: 'Course not found' });
+        }
+
+        // Verify authorization
+        const isFaculty = course.facultyIds.some(id => id.toString() === req.dbUser._id.toString());
+        if (!isFaculty) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+
+        // Find students who are in the same branches as the course
+        const students = await User.find({
+            role: 'student',
+            branchIds: { $in: course.branchIds },
+            isActive: true
+        }).select('profile email progressStats confidenceScore branchIds');
+
+        res.json({
+            success: true,
+            data: { students }
+        });
+    } catch (error) {
+        console.error('Get enrolled students error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get enrolled students',
             error: error.message
         });
     }
