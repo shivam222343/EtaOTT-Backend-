@@ -415,7 +415,8 @@ ADAPTIVE STRUCTURE:
 [[INTRO]] -> [[CONCEPT]] -> [[CODE]] -> [[SUMMARY]]
 - **DIRECT START**: Start the answer immediately. Skip long "I can help with that" preambles.
 - **EXPLANATION**: Provide a direct explanation grounded in ${selectedText || context || 'General curriculum'}. Use analogies to make it "click" instantly.
-- **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., \`\`\`python, \`\`\`js, \`\`\`sql). NEVER put comments or extra text on the same line as the opening backticks.
+- **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., \`\`\`python, \`\`\`js, \`\`\`sql). NEVER put comments or extra text on the same line as the opening backticks. 
+- **CODE ONLY**: Inside triple backticks, provide ONLY valid source code. NEVER include summaries, explanations, or conversational text inside the backticks. Exclude all natural language from code blocks.
 - **NO TIMESTAMPS**: Never mention time/frame references.
 - **FACTS ONLY**: No "likely" or "probably". Be confident based on the provided material.
 
