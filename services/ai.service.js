@@ -171,11 +171,13 @@ export const searchKnowledgeGraph = async (query, courseId = null, context = '')
             WHERE score >= 0.85
             MATCH (node)-[:ANSWERS]->(a:Answer)
             OPTIONAL MATCH (node)-[:RELATES_TO]->(c:Course {id: $courseId})
-            RETURN node.text as question, a.text as answer, score * 100 as confidence, (c IS NOT NULL) as isSameCourse
+            OPTIONAL MATCH (node)-[:GENERATED_FROM_RESOURCE]->(res:Content)
+            RETURN node.text as question, a.text as answer, score * 100 as confidence, 
+                   (c IS NOT NULL) as isSameCourse, res.title as resourceTitle, res.type as resourceType
             ORDER BY isSameCourse DESC, score DESC LIMIT 1
         `;
 
-        const result = await runNeo4jQuery(cypher, { embedding, courseId });
+        const result = await runNeo4jQuery(cypher, { embedding, courseId: courseId || '' });
         if (result.records.length > 0) {
             const record = result.records[0];
             return {
@@ -183,6 +185,8 @@ export const searchKnowledgeGraph = async (query, courseId = null, context = '')
                 question: record.get('question'),
                 answer: record.get('answer'),
                 confidence: record.get('confidence'),
+                resourceTitle: record.get('resourceTitle'),
+                resourceType: record.get('resourceType'),
                 source: 'KNOWLEDGE_GRAPH'
             };
         }
@@ -407,7 +411,17 @@ Start directly with a professional explanation.
 STRICT: No greetings. No intro fluff. Start directly with the core explanation. No summary headings.`;
         } else {
             // Adaptive General Prompt
+            const isGlobal = !resourceName || resourceName === 'General';
+
             systemPrompt = `You are a high-speed professional academic mentor. Provide a direct, crystal-clear response.
+
+${isGlobal ? 'YOU ARE IN GLOBAL MODE: You have access to all resources in the student\'s knowledge base. If searching across multiple resources, strictly cite the source for each fact.' : ''}
+
+CITATIONS & REFERENCES (STRICT REQUIREMENT):
+- If you are using information from a specific resource or content doc, you MUST cite it clearly.
+- Citations must be in the format: **(Source: [Resource Name], Page [X] / Timestamp [Y:ZZ])**.
+- If a page number or timestamp is available in the provided context, you MUST include it.
+- If no specific metadata is available but you know the resource, cite only the resource name.
 
 LANGUAGE RULES:
 ${languageInstruction}
@@ -417,9 +431,9 @@ ADAPTIVE STRUCTURE:
 - **DIRECT START**: Start the answer immediately. Skip long "I can help with that" preambles.
 - **EXPLANATION**: Provide a direct explanation grounded in ${selectedText || context || 'General curriculum'}. Use analogies to make it "click" instantly.
 - **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., \`\`\`python, \`\`\`js, \`\`\`sql). NEVER put comments or extra text on the same line as the opening backticks. 
-- **STRICT CODE ONLY**: Inside triple backticks, provide ONLY valid, executable source code. NEVER include summaries, explanations, or conversational text (even as comments) inside the backticks. Exclude all natural language from code blocks. All summaries and explanations MUST go into the [[SUMMARY]] or [[CONCEPT]] sections respectively. Failure to do this will disrupt the user experience.
-- **NO TIMESTAMPS**: Never mention time/frame references.
+- **STRICT CODE ONLY**: Inside triple backticks, provide ONLY valid, executable source code. NEVER include summaries, explanations, or conversational text (even as comments) inside the backticks. Exclude all natural language from code blocks. All summaries and explanations MUST go into the [[SUMMARY]] or [[CONCEPT]] sections respectively.
 - **FACTS ONLY**: No "likely" or "probably". Be confident based on the provided material.
+- **RESOURCE NAMES**: Refer to resources by their actual titles provided.
 
 CRITICAL CONSTRAINTS:
 - **STRICT: FIRST-STRIKE ANSWERS**. The first sentence must be the core answer or a direct response to the query.
@@ -427,10 +441,8 @@ CRITICAL CONSTRAINTS:
 - **NO UI NOISE**: Do not mention confidence, markers, or metadata.
 - **STRICT: NO URLs IN TEXT**.
 - Use ### for Section Headers.
-- Use ${userName}'s name once in the greeting.
-
-TABLE FORMATTING:
-            - Use markdown tables for comparisons or structured data.`;
+- Use ${userName}'s name naturally.
+`;
         }
 
         const messages = [];

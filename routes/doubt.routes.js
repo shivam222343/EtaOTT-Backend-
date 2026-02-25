@@ -67,14 +67,22 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
         let { query, selectedText, courseId, contentId, context, visualContext } = req.body;
         const studentId = req.dbUser._id;
 
-        if (!query || !courseId) {
-            return res.status(400).json({ success: false, message: 'Query and Course ID are required' });
+        if (!query) {
+            return res.status(400).json({ success: false, message: 'Query is required' });
         }
 
         // Fetch user with API key and increment interaction count
         const user = await User.findByIdAndUpdate(studentId, {
             $inc: { 'aiOnboarding.interactionCount': 1 }
         }, { new: true }).select('+groqApiKey');
+
+        // IF no courseId/contentId provided, this is a "Global AI Tutor" request
+        // We will try to find context from all courses this student is enrolled in
+        if (!courseId) {
+            console.log('🌐 Global AI Tutor Request Detected');
+            // Logic to find all accessible courses for this student
+            // For now, searchKnowledgeGraph handles global if courseId is nil
+        }
 
         // Fetch content details early to get extracted data
         const contentDoc = await Content.findById(contentId).populate('courseId');
@@ -210,7 +218,24 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
         }
 
         // 1. Rule 2 & 4: Search Knowledge Graph First (Neo4j Semantic Memory - Cache First)
-        const kgResult = await aiService.searchKnowledgeGraph(query, courseId, selectedText || groundingContext.facultyResources);
+        let kgResult = null;
+        let globalContextAggregator = "";
+
+        if (!courseId) {
+            // Global Mode: Search for multiple relevant contexts to provide broad coverage
+            try {
+                const globalKgResults = await aiService.searchKnowledgeGraph(query, null, selectedText || "");
+                if (globalKgResults && globalKgResults.match) {
+                    kgResult = globalKgResults; // Use the best match for the direct cache check
+                    // If we have multiple potential matches, we could aggregate them here
+                    // For now, let's just use the best one as the primary answer
+                }
+            } catch (err) {
+                console.warn('Global KG search failed:', err.message);
+            }
+        } else {
+            kgResult = await aiService.searchKnowledgeGraph(query, courseId, selectedText || groundingContext.facultyResources);
+        }
 
         // Prepare common vars for video search and AI
         const language = req.body.language || 'english';
@@ -219,17 +244,20 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
         if (kgResult && kgResult.confidence >= 85) {
             console.log(`🎯 CACHE HIT (Neo4j): Confidence ${kgResult.confidence}%`);
 
-            // Still try to get a video in parallel for cache hits but don't block too long or just use saved one if exists
-            // For now, prioritize speed for KG hits by returning immediately
+            let citationalAnswer = kgResult.answer;
+            if (kgResult.resourceTitle) {
+                citationalAnswer += `\n\n**(Source: ${kgResult.resourceTitle}${kgResult.resourceType ? ' [' + kgResult.resourceType + ']' : ''})**`;
+            }
+
             const doubt = await Doubt.create({
                 studentId,
-                courseId,
-                contentId,
+                courseId: courseId || null,
+                contentId: contentId || null,
                 query,
                 selectedText,
                 context: enhancedContext,
                 visualContext,
-                aiResponse: kgResult.answer,
+                aiResponse: citationalAnswer,
                 confidence: kgResult.confidence,
                 status: 'resolved',
                 isFromCache: true,
@@ -347,8 +375,8 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
 
         const doubt = await Doubt.create({
             studentId,
-            courseId,
-            contentId,
+            courseId: courseId || null,
+            contentId: contentId || null,
             query,
             selectedText,
             context: enhancedContext,
