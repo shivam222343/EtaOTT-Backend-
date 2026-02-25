@@ -271,7 +271,8 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
             language,
             userName,
             selectedText,
-            user?.groqApiKey
+            user?.groqApiKey,
+            contentDoc?.title
         );
 
         // Perform YouTube Search using AI's response context

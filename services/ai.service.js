@@ -305,7 +305,7 @@ export const saveToKnowledgeGraph = async (params) => {
     }
 };
 
-export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null) => {
+export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null, resourceTitle = null) => {
     try {
         let spatialInfo = '';
         let isVisionMode = false;
@@ -339,7 +339,7 @@ Act as if you are pointing your finger at that box and teaching the student abou
         const hasSelection = !!selectedText || !!visualContext;
 
         // Clean context for display (don't show raw text dumps in greetings)
-        const displayContext = (context && context.length < 50) ? context : "is resource";
+        const displayContext = resourceTitle || ((context && context.length < 50) ? context : "this resource");
 
         // If it's a greeting, keep it brief and helpful
         if (isGreeting && query.length < 20) {
@@ -418,6 +418,7 @@ ADAPTIVE STRUCTURE:
 [[INTRO]] -> [[CONCEPT]] -> [[CODE]] -> [[SUMMARY]]
 - **DIRECT START**: Start the answer immediately. Skip long "I can help with that" preambles.
 - **EXPLANATION**: Provide a direct explanation grounded in ${selectedText || context || 'General curriculum'}. Use analogies to make it "click" instantly.
+- **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., ```python, ```javascript).
 - **NO TIMESTAMPS**: Never mention time/frame references.
 - **FACTS ONLY**: No "likely" or "probably". Be confident based on the provided material.
 
