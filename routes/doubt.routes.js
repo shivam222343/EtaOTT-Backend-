@@ -544,6 +544,29 @@ router.get('/my-doubts', authenticate, attachUser, async (req, res) => {
 });
 
 /**
+ * Get all escalated doubts for a faculty across their courses
+ */
+router.get('/faculty/escalated', authenticate, attachUser, requireFaculty, async (req, res) => {
+    try {
+        const facultyId = req.dbUser._id;
+        const courses = await Course.find({ facultyIds: facultyId });
+        const courseIds = courses.map(c => c._id);
+
+        const doubts = await Doubt.find({
+            courseId: { $in: courseIds },
+            status: 'escalated'
+        })
+            .populate('studentId', 'profile.name')
+            .populate('courseId', 'name')
+            .sort({ createdAt: -1 });
+
+        res.json({ success: true, data: { doubts } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+/**
  * Get escalated doubts for a course (Faculty Only)
  */
 router.get('/escalated/:courseId', authenticate, attachUser, requireFaculty, async (req, res) => {

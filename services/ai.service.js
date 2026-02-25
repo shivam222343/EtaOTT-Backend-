@@ -305,7 +305,7 @@ export const saveToKnowledgeGraph = async (params) => {
     }
 };
 
-export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null) => {
+export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null, resourceName = null) => {
     try {
         let spatialInfo = '';
         let isVisionMode = false;
@@ -336,7 +336,8 @@ Act as if you are pointing your finger at that box and teaching the student abou
         const hasSelection = !!selectedText || !!visualContext;
 
         // Clean context for display (don't show raw text dumps in greetings)
-        const displayContext = (context && context.length < 50) ? context : "is resource";
+        // Rule: If resourceName is provided by the router, use it. Otherwise fallback to context or "this resource"
+        const displayContext = resourceName || ((context && context.length < 50) ? context : "is resource");
 
         // If it's a greeting, keep it brief and helpful
         if (isGreeting && query.length < 20) {
