@@ -305,16 +305,13 @@ export const saveToKnowledgeGraph = async (params) => {
     }
 };
 
-export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null, resourceTitle = null) => {
+export const askGroq = async (query, context = '', visualContext = null, contentUrl = null, contentType = null, language = 'english', userName = 'Student', selectedText = '', userKey = null) => {
     try {
         let spatialInfo = '';
         let isVisionMode = false;
         const activeApiKey = userKey || GROQ_API_KEY;
 
-        if (activeApiKey) {
-            console.log(`🤖 AI Call: Using ${userKey ? 'User-provided' : 'Platform-default'} key (${activeApiKey.substring(0, 8)}...)`);
-        } else {
-            console.warn('❌ AI Call: No API key available');
+        if (!activeApiKey) {
             throw new Error('NO_API_KEY');
         }
 
@@ -339,7 +336,7 @@ Act as if you are pointing your finger at that box and teaching the student abou
         const hasSelection = !!selectedText || !!visualContext;
 
         // Clean context for display (don't show raw text dumps in greetings)
-        const displayContext = resourceTitle || ((context && context.length < 50) ? context : "this resource");
+        const displayContext = (context && context.length < 50) ? context : "is resource";
 
         // If it's a greeting, keep it brief and helpful
         if (isGreeting && query.length < 20) {
@@ -418,7 +415,7 @@ ADAPTIVE STRUCTURE:
 [[INTRO]] -> [[CONCEPT]] -> [[CODE]] -> [[SUMMARY]]
 - **DIRECT START**: Start the answer immediately. Skip long "I can help with that" preambles.
 - **EXPLANATION**: Provide a direct explanation grounded in ${selectedText || context || 'General curriculum'}. Use analogies to make it "click" instantly.
-- **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., ```python, ```javascript).
+- **CODE SNIPPETS**: If a coding question or example is needed, put it STRICTLY inside the [[CODE]] section. ALWAYS use triple backticks with the language identifier (e.g., \`\`\`python, \`\`\`js, \`\`\`sql). NEVER put comments or extra text on the same line as the opening backticks.
 - **NO TIMESTAMPS**: Never mention time/frame references.
 - **FACTS ONLY**: No "likely" or "probably". Be confident based on the provided material.
 
@@ -431,7 +428,7 @@ CRITICAL CONSTRAINTS:
 - Use ${userName}'s name once in the greeting.
 
 TABLE FORMATTING:
-- Use markdown tables for comparisons or structured data.`;
+            - Use markdown tables for comparisons or structured data.`;
         }
 
         const messages = [];
@@ -448,7 +445,7 @@ TABLE FORMATTING:
                         { type: 'text', text: systemPrompt + "\n\nACTUAL STUDENT QUERY: " + query },
                         {
                             type: 'image_url',
-                            image_url: { url: `data:${mimeType};base64,${base64Image}` }
+                            image_url: { url: `data:${mimeType}; base64, ${base64Image} ` }
                         }
                     ]
                 });
@@ -472,7 +469,7 @@ TABLE FORMATTING:
             },
             {
                 headers: {
-                    'Authorization': `Bearer ${activeApiKey}`,
+                    'Authorization': `Bearer ${activeApiKey} `,
                     'Content-Type': 'application/json'
                 },
                 timeout: 30000
@@ -516,16 +513,16 @@ TABLE FORMATTING:
 
 export const saveDoubtToGraph = async (query, answer, confidence, context = '', contentId = null) => {
     try {
-        const queryKey = `${query.toLowerCase().trim()}${context ? '|' + context.toLowerCase().trim() : ''}`;
+        const queryKey = `${query.toLowerCase().trim()}${context ? '|' + context.toLowerCase().trim() : ''} `;
         await runNeo4jQuery(
             `MERGE(d: Doubt { queryKey: $queryKey })
              SET d.query = $query, d.context = $context, d.answer = $answer,
-                 d.confidence = $confidence, d.updatedAt = datetime()
+                d.confidence = $confidence, d.updatedAt = datetime()
              WITH d
              OPTIONAL MATCH(c: Content { id: $contentId })
-             FOREACH(ignoreMe IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
-                 MERGE(d)-[:RELATES_TO]->(c)
-             )`,
+            FOREACH(ignoreMe IN CASE WHEN c IS NOT NULL THEN[1] ELSE[] END |
+                MERGE(d) - [: RELATES_TO] -> (c)
+            )`,
             { queryKey, query: query.trim(), context: context.trim(), answer, confidence, contentId }
         );
     } catch (error) {
@@ -541,16 +538,16 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
         // 1. Fetch context from KG if institution is known
         if (institutionCode) {
             const graphData = await runNeo4jQuery(
-                `MATCH (i:Institution)-[:CONTAINS]->(b:Branch)-[:OFFERS]->(c:Course)-[:HAS_CONTENT]->(content:Content)
+                `MATCH(i: Institution) - [: CONTAINS] -> (b:Branch) -[: OFFERS] -> (c:Course) -[: HAS_CONTENT] -> (content:Content)
                  WHERE i.name CONTAINS $code OR i.id = $code
-                 MATCH (content)-[:COVERS|TEACHES]->(node)
-                 WHERE node.name =~ $queryRegex OR $query CONTAINS node.name
+            MATCH(content) - [: COVERS | TEACHES] -> (node)
+                 WHERE node.name = ~$queryRegex OR $query CONTAINS node.name
                  RETURN DISTINCT node.name as name, labels(node)[0] as type
                  LIMIT 5`,
                 {
                     code: institutionCode,
                     query: query,
-                    queryRegex: `(?i).*${query.split(' ')[0]}.*`
+                    queryRegex: `(?i).* ${query.split(' ')[0]}.* `
                 }
             );
 
@@ -561,29 +558,29 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
         }
 
         // 2. Multimodal context extraction (if provided)
-        let mediaContext = guestContext.extractedText ? `\nContent extracted from your upload: ${guestContext.extractedText}` : '';
+        let mediaContext = guestContext.extractedText ? `\nContent extracted from your upload: ${guestContext.extractedText} ` : '';
 
         // 3. Call Groq
         const messages = [
             {
                 role: 'system',
                 content: `You are the Eta Academic Concierge. 
-                You are helping a guest student who is interacting via WhatsApp/Messaging.
-                
+                You are helping a guest student who is interacting via WhatsApp / Messaging.
+
                 IDENTITY:
-                - You represent Eta, an AI-powered OTT Platform for Education.
+            - You represent Eta, an AI - powered OTT Platform for Education.
                 - You are smart, professional, yet encouraging.
-                
-                RULES:
-                - Use the provided context to give a high-quality answer.
-                - Keep the answer concise (max 200 words).
+
+                    RULES:
+            - Use the provided context to give a high - quality answer.
+                - Keep the answer concise(max 200 words).
                 - Use Markdown for bolding and bullet points.
                 - ALWAYS mention if the data was found in their specific institution's knowledge graph.
-                - AT THE END: Always include a call-to-action to login to the full platform.
-                
-                CONTEXT:
+                - AT THE END: Always include a call - to - action to login to the full platform.
+
+                    CONTEXT:
                 ${kgContext}
-                ${mediaContext}`
+                ${mediaContext} `
             },
             {
                 role: 'user',
@@ -598,7 +595,7 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
             max_tokens: 800
         }, {
             headers: {
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Authorization': `Bearer ${GROQ_API_KEY} `,
                 'Content-Type': 'application/json'
             }
         });
@@ -608,9 +605,9 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
         // 5. Append Growth Metadata
         let finalResponse = answer;
         if (relatedNodes.length > 0) {
-            finalResponse += `\n\n🔍 **Found in your Curriculum:**\nThis topic is linked to: *${relatedNodes.join(', ')}* in your portal.`;
+            finalResponse += `\n\n🔍 ** Found in your Curriculum:**\nThis topic is linked to: * ${relatedNodes.join(', ')}* in your portal.`;
         }
-        finalResponse += `\n\n🚀 **Unlock Full Potential:**\nTo see interactive 3D graphs, teacher videos, and get unlimited AI support, visit: https://eta-ott.netlify.app/login`;
+        finalResponse += `\n\n🚀 ** Unlock Full Potential:**\nTo see interactive 3D graphs, teacher videos, and get unlimited AI support, visit: https://eta-ott.netlify.app/login`;
 
         return {
             success: true,
@@ -627,9 +624,8 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
     }
 };
 
-export const analyzeDifficultMaterial = async (queries, materialTitle, subjectName, userKey = null) => {
+export const analyzeDifficultMaterial = async (queries, materialTitle, subjectName) => {
     try {
-        const activeApiKey = userKey || GROQ_API_KEY;
         if (!queries || queries.length === 0) {
             return {
                 summary: "Insufficient data to analyze difficulty.",
@@ -684,9 +680,8 @@ export const analyzeDifficultMaterial = async (queries, materialTitle, subjectNa
     }
 };
 
-export const resolvePlatformQuery = async (query, history = [], userName = 'User', language = 'english', userKey = null) => {
+export const resolvePlatformQuery = async (query, history = [], userName = 'User', language = 'english') => {
     try {
-        const activeApiKey = userKey || GROQ_API_KEY;
         const hindiKeywords = /hindi|batao|kaise|kya|kyun|samajh|hai|hoon|tha|the|thi/i;
         const isHindiDetected = hindiKeywords.test(query) || language.toLowerCase() === 'hindi';
         const detectedLanguage = isHindiDetected ? 'hindi' : 'english';
