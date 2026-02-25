@@ -123,7 +123,9 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                     /\(Visual Scan - AI Analysis\)/g,
                     /\(Video Focus - Analyzing Frame.*?\)/g,
                     /\(Image Focus - AI Vision\)/g,
-                    /\(Visual Scan.*?\)/g
+                    /\(Visual Scan.*?\)/g,
+                    /\[Visual Context: .*?\]/g,
+                    /\[Area: .*?\]/g
                 ];
                 let cleanSelectedText = (selectedText || '').trim();
                 uiPlaceholders.forEach(regex => {
@@ -152,7 +154,9 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
         // Apply grounding to enhanced context for Groq
         if (isRegionSelect) {
             // Check if transcriptSegment is empty or just a placeholder/UI tag
-            const isPlaceholder = /^\(.*\)$/.test(groundingContext.transcriptSegment?.trim() || '');
+            const isPlaceholder = /^\(.*\)$/.test(groundingContext.transcriptSegment?.trim() || '') ||
+                groundingContext.transcriptSegment?.includes('(Visual Scan') ||
+                groundingContext.transcriptSegment?.includes('[Visual Context');
 
             // Ensure transcriptSegment has at least some real content from the resource
             if ((!groundingContext.transcriptSegment || isPlaceholder) && fullTranscript) {
