@@ -108,6 +108,36 @@ export const createConceptNodes = async (contentId, concepts) => {
 };
 
 /**
+ * Create segment nodes for video content
+ * @param {string} contentId - Content MongoDB ID
+ * @param {Array} segments - Array of segment objects {start, end, text}
+ */
+export const createSegmentNodes = async (contentId, segments) => {
+    try {
+        for (const segment of segments) {
+            await runNeo4jQuery(
+                `MATCH (c:Content {id: $contentId})
+                 CREATE (s:Segment {
+                    start: $start,
+                    end: $end,
+                    text: $text,
+                    timestamp: datetime()
+                 })
+                 MERGE (c)-[:HAS_SEGMENT]->(s)`,
+                {
+                    contentId: contentId.toString(),
+                    start: segment.start,
+                    end: segment.end,
+                    text: segment.text
+                }
+            );
+        }
+    } catch (error) {
+        console.error('Create segment nodes error:', error);
+    }
+};
+
+/**
  * Create prerequisite relationships between content
  * @param {string} contentId - Content MongoDB ID
  * @param {Array} prerequisiteIds - Array of prerequisite content IDs
@@ -423,5 +453,6 @@ export default {
     getRecommendations,
     recordView,
     getContentGraph,
-    deleteContentNode
+    deleteContentNode,
+    createSegmentNodes
 };

@@ -45,7 +45,11 @@ router.post('/signup', async (req, res) => {
                     id: user._id,
                     email: user.email,
                     role: user.role,
-                    profile: user.profile
+                    profile: user.profile,
+                    institutionIds: user.institutionIds,
+                    branchIds: user.branchIds,
+                    groqApiKey: user.groqApiKey,
+                    aiOnboarding: user.aiOnboarding
                 },
                 token
             }
@@ -68,8 +72,8 @@ router.post('/login', async (req, res) => {
         // Verify Firebase token
         const decodedToken = await verifyFirebaseToken(firebaseToken);
 
-        // Find user
-        const user = await User.findOne({ firebaseUid: decodedToken.uid });
+        // Find user with API Key
+        const user = await User.findOne({ firebaseUid: decodedToken.uid }).select('+groqApiKey');
         if (!user) {
             return res.status(404).json({
                 success: false,
@@ -94,7 +98,9 @@ router.post('/login', async (req, res) => {
                     role: user.role,
                     profile: user.profile,
                     institutionIds: user.institutionIds,
-                    branchIds: user.branchIds
+                    branchIds: user.branchIds,
+                    groqApiKey: user.groqApiKey,
+                    aiOnboarding: user.aiOnboarding
                 },
                 token
             }

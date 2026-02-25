@@ -71,8 +71,10 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Query and Course ID are required' });
         }
 
-        // Fetch user with API key for this request
-        const user = await User.findById(studentId).select('+groqApiKey');
+        // Fetch user with API key and increment interaction count
+        const user = await User.findByIdAndUpdate(studentId, {
+            $inc: { 'aiOnboarding.interactionCount': 1 }
+        }, { new: true }).select('+groqApiKey');
 
         // Fetch content details early to get extracted data
         const contentDoc = await Content.findById(contentId).populate('courseId');
@@ -106,8 +108,19 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                     const totalSeconds = mins * 60 + secs;
                     groundingContext.selectedTimestamp = `${mins}:${secs.toString().padStart(2, '0')}`;
 
-                    if (fullTranscript) {
-                        // Rule 1: Extract transcript segment ±30 seconds
+                    if (contentDoc.extractedData?.segments && contentDoc.extractedData.segments.length > 0) {
+                        // Try to find the exact segment matching the timestamp
+                        const segment = contentDoc.extractedData.segments.find(s =>
+                            totalSeconds >= s.start && totalSeconds <= s.end
+                        );
+                        if (segment) {
+                            groundingContext.transcriptSegment = segment.text;
+                            console.log(`🎯 Found matching segment in extractedData for t=${totalSeconds}`);
+                        }
+                    }
+
+                    if (!groundingContext.transcriptSegment && fullTranscript) {
+                        // Fallback: Rule 1: Extract transcript segment ±30 seconds
                         const wordsPerSec = 2.5;
                         const windowSeconds = 30;
                         const words = fullTranscript.split(/\s+/);
@@ -135,16 +148,36 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                 groundingContext.transcriptSegment = cleanSelectedText || selectedText;
             }
 
-            // Rule 7: Knowledge Graph Integration - Fetch related concept nodes
+            // Rule 7: Knowledge Graph Integration - Fetch related concept nodes and segment info
             try {
-                const graphData = await runNeo4jQuery(
-                    `MATCH (c:Content {id: $contentId})-[:COVERS|TEACHES]->(node)
-                     RETURN node.name as name, labels(node)[0] as type
-                     LIMIT 5`,
-                    { contentId: contentId.toString() }
-                );
+                // Query for related nodes (topics/concepts) and also check if a Segment node exists for this timestamp
+                const cypher = `
+                    MATCH (c:Content {id: $contentId})
+                    OPTIONAL MATCH (c)-[:COVERS|TEACHES]->(node)
+                    WITH c, collect(node.name) as relatedNames
+                    OPTIONAL MATCH (c)-[:HAS_SEGMENT]->(s:Segment)
+                    WHERE $totalSeconds IS NOT NULL AND $totalSeconds >= s.start AND $totalSeconds <= s.end
+                    RETURN relatedNames, s.text as segmentText LIMIT 1
+                `;
+
+                const graphData = await runNeo4jQuery(cypher, {
+                    contentId: contentId.toString(),
+                    totalSeconds: (groundingContext.selectedTimestamp ? (parseInt(groundingContext.selectedTimestamp.split(':')[0]) * 60 + parseInt(groundingContext.selectedTimestamp.split(':')[1])) : null)
+                });
+
                 if (graphData.records.length > 0) {
-                    groundingContext.facultyResources += ` | Related Nodes: ${graphData.records.map(r => r.get('name')).join(', ')}`;
+                    const record = graphData.records[0];
+                    const relatedNames = record.get('relatedNames') || [];
+                    const segmentText = record.get('segmentText');
+
+                    if (relatedNames.length > 0) {
+                        groundingContext.facultyResources += ` | Topic Map: ${relatedNames.join(', ')}`;
+                    }
+
+                    if (segmentText && !groundingContext.transcriptSegment) {
+                        groundingContext.transcriptSegment = segmentText;
+                        console.log('🔗 Retreived precise segment context from Knowledge Graph');
+                    }
                 }
             } catch (gError) {
                 console.warn('Neo4j context fetch failed:', gError.message);
@@ -156,7 +189,9 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
             // Check if transcriptSegment is empty or just a placeholder/UI tag
             const isPlaceholder = /^\(.*\)$/.test(groundingContext.transcriptSegment?.trim() || '') ||
                 groundingContext.transcriptSegment?.includes('(Visual Scan') ||
-                groundingContext.transcriptSegment?.includes('[Visual Context');
+                groundingContext.transcriptSegment?.includes('(Video Focus') ||
+                groundingContext.transcriptSegment?.includes('(PDF Focus') ||
+                groundingContext.transcriptSegment?.includes('(Image Focus');
 
             // Ensure transcriptSegment has at least some real content from the resource
             if ((!groundingContext.transcriptSegment || isPlaceholder) && fullTranscript) {
@@ -209,7 +244,17 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                     isFromCache: true,
                     isSaved: true,
                     source: 'KNOWLEDGE_GRAPH',
-                    confidence: kgResult.confidence
+                    confidence: kgResult.confidence,
+                    user: {
+                        id: user._id,
+                        email: user.email,
+                        role: user.role,
+                        profile: user.profile,
+                        institutionIds: user.institutionIds,
+                        branchIds: user.branchIds,
+                        groqApiKey: user.groqApiKey,
+                        aiOnboarding: user.aiOnboarding
+                    }
                 }
             });
         }
@@ -326,7 +371,17 @@ router.post('/ask', authenticate, attachUser, async (req, res) => {
                 isSaved,
                 isConversational: aiResult.isConversational || false,
                 source: 'AI_API',
-                confidence: aiResult.confidence
+                confidence: aiResult.confidence,
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    role: user.role,
+                    profile: user.profile,
+                    institutionIds: user.institutionIds,
+                    branchIds: user.branchIds,
+                    groqApiKey: user.groqApiKey,
+                    aiOnboarding: user.aiOnboarding
+                }
             }
         });
     } catch (error) {

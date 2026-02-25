@@ -8,6 +8,7 @@ import {
     createTopicNodes,
     createConceptNodes,
     linkRelatedContent,
+    createSegmentNodes,
 } from '../services/graph/content.graph.js';
 
 /**
@@ -52,14 +53,14 @@ export async function processContent(contentId, contentType, fileUrl) {
                 }
 
                 if (contentType === 'pdf') {
-                    // ... (rest of extraction logic) ...
                     extractedData = {
                         text: mlData.text,
                         summary: mlData.summary,
-                        topics: mlData.topics,
-                        keywords: mlData.keywords,
-                        structure: mlData.structure,
-                        metadata: mlData.metadata
+                        topics: mlData.topics || [],
+                        keywords: mlData.keywords || [],
+                        structure: mlData.structure || {},
+                        pages: mlData.pages || [], // Hierarchical page-level data
+                        metadata: mlData.metadata || {}
                     };
                 } else if (contentType === 'video' || contentType === 'youtube') {
                     extractedData = {
@@ -67,6 +68,7 @@ export async function processContent(contentId, contentType, fileUrl) {
                         summary: mlData.summary,
                         topics: mlData.topics || [],
                         keywords: mlData.keywords || [],
+                        segments: mlData.segments || [], // Timestamped segments from ML
                         metadata: {
                             ...mlData.metadata,
                             duration: mlData.duration,
@@ -180,6 +182,11 @@ export async function processContent(contentId, contentType, fileUrl) {
             if (extractedData.topics && extractedData.topics.length > 0) {
                 await createTopicNodes(content._id, extractedData.topics);
             }
+
+            if (extractedData.segments && extractedData.segments.length > 0) {
+                await createSegmentNodes(content._id, extractedData.segments);
+            }
+
             await linkRelatedContent(content._id);
         } catch (graphError) {
             console.error(`❌ [${contentId}] Graph processing failed:`, graphError);

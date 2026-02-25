@@ -311,7 +311,10 @@ export const askGroq = async (query, context = '', visualContext = null, content
         let isVisionMode = false;
         const activeApiKey = userKey || GROQ_API_KEY;
 
-        if (!activeApiKey) {
+        if (activeApiKey) {
+            console.log(`🤖 AI Call: Using ${userKey ? 'User-provided' : 'Platform-default'} key (${activeApiKey.substring(0, 8)}...)`);
+        } else {
+            console.warn('❌ AI Call: No API key available');
             throw new Error('NO_API_KEY');
         }
 
@@ -623,8 +626,9 @@ export const resolveGuestDoubt = async (query, institutionCode = null, guestCont
     }
 };
 
-export const analyzeDifficultMaterial = async (queries, materialTitle, subjectName) => {
+export const analyzeDifficultMaterial = async (queries, materialTitle, subjectName, userKey = null) => {
     try {
+        const activeApiKey = userKey || GROQ_API_KEY;
         if (!queries || queries.length === 0) {
             return {
                 summary: "Insufficient data to analyze difficulty.",
@@ -679,8 +683,9 @@ export const analyzeDifficultMaterial = async (queries, materialTitle, subjectNa
     }
 };
 
-export const resolvePlatformQuery = async (query, history = [], userName = 'User', language = 'english') => {
+export const resolvePlatformQuery = async (query, history = [], userName = 'User', language = 'english', userKey = null) => {
     try {
+        const activeApiKey = userKey || GROQ_API_KEY;
         const hindiKeywords = /hindi|batao|kaise|kya|kyun|samajh|hai|hoon|tha|the|thi/i;
         const isHindiDetected = hindiKeywords.test(query) || language.toLowerCase() === 'hindi';
         const detectedLanguage = isHindiDetected ? 'hindi' : 'english';

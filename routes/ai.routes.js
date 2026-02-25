@@ -60,12 +60,16 @@ router.post('/platform-ask', authenticate, attachUser, async (req, res) => {
             content: h.content
         }));
 
+        // 1.5 Fetch full user with API key (already increments in doubts, but here we just need the key)
+        const user = await (await import('../models/User.model.js')).default.findById(userId).select('+groqApiKey');
+
         // 2. Resolve via AI Service
         const result = await aiService.resolvePlatformQuery(
             query,
             formattedHistory,
             req.dbUser.profile?.name || 'User',
-            language
+            language,
+            user?.groqApiKey
         );
 
         // 3. Save User Message
